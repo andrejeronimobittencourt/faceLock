@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Weights / runtime data (formats documented in README)
+models/*
+!models/.gitkeep
+data/identities/*
+!data/identities/.gitkeep
+gallery/**
+!gallery/.gitkeep
+!gallery/faces/
+gallery/faces/*
+!gallery/faces/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*:Zone.Identifier
+
+*.log
+*.pt
+*.npy
