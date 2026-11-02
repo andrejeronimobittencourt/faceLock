@@ -1,7 +1,7 @@
 # FaceLock
 
 Train a face **encoder**, register people in a SQLite **gallery**, run live
-**camera** recognition with a JARVIS-style HUD and access clearance
+**camera** recognition with a Sci-Fi style HUD and access clearance
 (`user` < `operator` < `admin`).
 
 ![FaceLock HUD](assets/demo.png)
