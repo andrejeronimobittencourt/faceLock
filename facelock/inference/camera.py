@@ -62,7 +62,7 @@ def runCamera(
   sessionMemoryFrames: int = SESSION_MEMORY_FRAMES,
   deviceChoice: str = 'auto',
   inferEvery: int = 2,
-  cropMargin: float = 0.25,
+  cropMargin: float = 0.0,
   mirror: bool = True,
 ) -> None:
   """Open the webcam and run recognition with the JARVIS HUD."""

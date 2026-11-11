@@ -137,6 +137,34 @@ def cmdDelete(args: argparse.Namespace) -> None:
   print(f'Deleted: {args.id if args.id is not None else args.name}')
 
 
+def cmdReembed(args: argparse.Namespace) -> None:
+  """Re-embed every identity from its stored face image."""
+  encoderPath = Path(args.encoder)
+  device = resolveDevice(args.device)
+  with FaceGallery(Path(args.db), Path(args.faces_dir)) as gallery:
+    identities = gallery.listIdentities()
+    if not identities:
+      print('Gallery empty.')
+      return
+    print(f'Re-embedding {len(identities)} identities with {encoderPath}')
+    for identity in identities:
+      imagePath = Path(identity.imagePath)
+      if not imagePath.is_file():
+        raise FileNotFoundError(
+          f'Missing face file for {identity.name!r} (id={identity.id}): {imagePath}'
+        )
+      embedding = embedImagePath(encoderPath, imagePath, device)
+      gallery.update(
+        identityId=identity.id,
+        sourceImage=imagePath,
+        embedding=embedding,
+      )
+      print(
+        f'  ok id={identity.id} name={identity.name!r} dim={embedding.size}'
+      )
+  print('Done.')
+
+
 def cmdCheck(args: argparse.Namespace) -> None:
   """Match an image against the gallery and evaluate clearance."""
   embedding = embedImagePath(
@@ -164,38 +192,53 @@ def cmdCheck(args: argparse.Namespace) -> None:
   raise SystemExit(codes.get(result.decision, 1))
 
 
-def buildParser() -> argparse.ArgumentParser:
-  """Gallery CRUD CLI."""
+def addSharedArgs(parser: argparse.ArgumentParser) -> None:
+  """Shared gallery CLI flags."""
   paths = Paths()
-  parser = argparse.ArgumentParser(description='Face gallery CRUD')
   parser.add_argument('--db', type=str, default=str(paths.galleryDb))
   parser.add_argument('--faces-dir', type=str, default=str(paths.galleryFaces))
   parser.add_argument('--encoder', type=str, default=str(paths.encoderBest))
   parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cuda', 'cpu'])
 
+
+def buildParser() -> argparse.ArgumentParser:
+  """Gallery CRUD CLI."""
+  shared = argparse.ArgumentParser(add_help=False)
+  addSharedArgs(shared)
+
+  parser = argparse.ArgumentParser(description='Face gallery CRUD')
+  addSharedArgs(parser)
   sub = parser.add_subparsers(dest='command', required=True)
 
-  createCmd = sub.add_parser('create', help='Create identity')
+  createCmd = sub.add_parser('create', parents=[shared], help='Create identity')
   createCmd.add_argument('--name', required=True)
   createCmd.add_argument('--access', required=True, help='user | operator | admin')
   createCmd.add_argument('--image', required=True)
   createCmd.set_defaults(func=cmdCreate)
 
-  registerCmd = sub.add_parser('register', help='Create or replace by name')
+  registerCmd = sub.add_parser(
+    'register',
+    parents=[shared],
+    help='Create or replace by name',
+  )
   registerCmd.add_argument('--name', required=True)
   registerCmd.add_argument('--access', required=True)
   registerCmd.add_argument('--image', required=True)
   registerCmd.set_defaults(func=cmdRegister)
 
-  getCmd = sub.add_parser('get', help='Get by --id or --name')
+  getCmd = sub.add_parser('get', parents=[shared], help='Get by --id or --name')
   getCmd.add_argument('--id', type=int, default=None)
   getCmd.add_argument('--name', type=str, default='')
   getCmd.set_defaults(func=cmdGet)
 
-  listCmd = sub.add_parser('list', help='List identities')
+  listCmd = sub.add_parser('list', parents=[shared], help='List identities')
   listCmd.set_defaults(func=cmdList)
 
-  updateCmd = sub.add_parser('update', help='Update name / access / face')
+  updateCmd = sub.add_parser(
+    'update',
+    parents=[shared],
+    help='Update name / access / face',
+  )
   updateCmd.add_argument('--id', type=int, default=None)
   updateCmd.add_argument('--name', type=str, default='')
   updateCmd.add_argument('--new-name', default='')
@@ -203,12 +246,23 @@ def buildParser() -> argparse.ArgumentParser:
   updateCmd.add_argument('--image', default='')
   updateCmd.set_defaults(func=cmdUpdate)
 
-  deleteCmd = sub.add_parser('delete', help='Delete by --id or --name')
+  deleteCmd = sub.add_parser(
+    'delete',
+    parents=[shared],
+    help='Delete by --id or --name',
+  )
   deleteCmd.add_argument('--id', type=int, default=None)
   deleteCmd.add_argument('--name', type=str, default='')
   deleteCmd.set_defaults(func=cmdDelete)
 
-  checkCmd = sub.add_parser('check', help='Match image + clearance')
+  reembedCmd = sub.add_parser(
+    'reembed',
+    parents=[shared],
+    help='Re-embed all identities from stored face images',
+  )
+  reembedCmd.set_defaults(func=cmdReembed)
+
+  checkCmd = sub.add_parser('check', parents=[shared], help='Match image + clearance')
   checkCmd.add_argument('--image', required=True)
   checkCmd.add_argument('--required', default='admin')
   checkCmd.add_argument('--match-threshold', type=float, default=MATCH_THRESHOLD)

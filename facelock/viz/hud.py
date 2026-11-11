@@ -7,9 +7,12 @@ text, padding, stroke, and gallery ref scale with that box.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
+from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from facelock.gallery import (
   DECISION_GRANTED,
@@ -25,6 +28,74 @@ MINT = (190, 230, 160)
 AMBER = (60, 170, 230)
 CRIMSON = (90, 90, 230)
 PANEL = (16, 12, 10)
+
+_FONT_CANDIDATES = (
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+  '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+  '/usr/share/fonts/TTF/DejaVuSans.ttf',
+)
+
+
+@lru_cache(maxsize=8)
+def _loadHudFont(pixelHeight: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+  """Load a TTF that supports Latin accents; fall back to PIL default."""
+  size = max(8, int(pixelHeight))
+  for candidate in _FONT_CANDIDATES:
+    path = Path(candidate)
+    if path.is_file():
+      return ImageFont.truetype(str(path), size=size)
+  return ImageFont.load_default()
+
+
+def _textSizeUtf8(text: str, pixelHeight: int) -> tuple[int, int]:
+  """Width/height of UTF-8 text at the given pixel height."""
+  font = _loadHudFont(pixelHeight)
+  left, top, right, bottom = font.getbbox(text)
+  return int(right - left), int(bottom - top)
+
+
+def _putTextUtf8(
+  frame: np.ndarray,
+  text: str,
+  org: tuple[int, int],
+  pixelHeight: int,
+  colorBgr: tuple[int, int, int],
+) -> None:
+  """Draw UTF-8 text with baseline org (x, baselineY)."""
+  if not text:
+    return
+  font = _loadHudFont(pixelHeight)
+  left, top, right, bottom = font.getbbox(text)
+  textW = max(1, int(right - left))
+  textH = max(1, int(bottom - top))
+  overlay = Image.new('RGBA', (textW, textH), (0, 0, 0, 0))
+  draw = ImageDraw.Draw(overlay)
+  colorRgb = (int(colorBgr[2]), int(colorBgr[1]), int(colorBgr[0]), 255)
+  draw.text((-left, -top), text, font=font, fill=colorRgb)
+
+  x, baselineY = org
+  y = int(baselineY - textH)
+  frameH, frameW = frame.shape[:2]
+  x1 = max(0, x)
+  y1 = max(0, y)
+  x2 = min(frameW, x + textW)
+  y2 = min(frameH, y + textH)
+  if x1 >= x2 or y1 >= y2:
+    return
+  srcX1 = x1 - x
+  srcY1 = y1 - y
+  srcX2 = srcX1 + (x2 - x1)
+  srcY2 = srcY1 + (y2 - y1)
+  patch = np.asarray(overlay)[srcY1:srcY2, srcX1:srcX2]
+  alpha = patch[:, :, 3:4].astype(np.float32) / 255.0
+  rgb = patch[:, :, :3][:, :, ::-1].astype(np.float32)
+  roi = frame[y1:y2, x1:x2].astype(np.float32)
+  frame[y1:y2, x1:x2] = np.clip(rgb * alpha + roi * (1.0 - alpha), 0, 255).astype(
+    np.uint8,
+  )
+
 
 
 def decisionAccent(decision: str | None) -> tuple[int, int, int]:
@@ -184,18 +255,16 @@ def drawReadout(
   side: float,
 ) -> None:
   """Identity chip sized as a fraction of the face square."""
-  font = cv2.FONT_HERSHEY_SIMPLEX
-  # OpenCV font scale ≈ pixel height / ~22 at thickness 1.
-  scaleName = (side * 0.11) / 22.0
-  scaleMeta = (side * 0.085) / 22.0
+  namePx = max(10, int(side * 0.11))
+  metaPx = max(9, int(side * 0.085))
   thickness = strokeFor(side)
-  nameSize = cv2.getTextSize(nameLine, font, scaleName, thickness)[0]
-  metaSize = cv2.getTextSize(metaLine, font, scaleMeta, thickness)[0]
+  nameW, nameH = _textSizeUtf8(nameLine, namePx)
+  metaW, metaH = _textSizeUtf8(metaLine, metaPx)
   padX = max(4, int(side * 0.05))
   padY = max(4, int(side * 0.04))
   gap = max(4, int(side * 0.035))
-  boxW = max(nameSize[0], metaSize[0]) + padX * 2
-  boxH = nameSize[1] + metaSize[1] + padY * 2 + gap
+  boxW = max(nameW, metaW) + padX * 2
+  boxH = nameH + metaH + padY * 2 + gap
   top = max(0, y - boxH - max(4, int(side * 0.04)))
   left = max(0, x)
   frameH, frameW = frame.shape[:2]
@@ -219,25 +288,19 @@ def drawReadout(
     max(2, thickness + 1),
     cv2.LINE_AA,
   )
-  cv2.putText(
+  _putTextUtf8(
     frame,
     nameLine,
-    (left + padX, top + padY + nameSize[1]),
-    font,
-    scaleName,
+    (left + padX, top + padY + nameH),
+    namePx,
     WHITE,
-    thickness,
-    cv2.LINE_AA,
   )
-  cv2.putText(
+  _putTextUtf8(
     frame,
     metaLine,
-    (left + padX, top + padY + nameSize[1] + metaSize[1] + gap),
-    font,
-    scaleMeta,
+    (left + padX, top + padY + nameH + metaH + gap),
+    metaPx,
     color,
-    thickness,
-    cv2.LINE_AA,
   )
 
 

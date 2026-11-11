@@ -48,9 +48,10 @@ def expandBox(
   height: int,
   frameWidth: int,
   frameHeight: int,
-  margin: float = 0.25,
+  margin: float = 0.0,
 ) -> tuple[int, int, int, int]:
   """Expand a Haar box by margin fraction and clamp to frame bounds."""
+
   padX = int(width * margin)
   padY = int(height * margin)
   x1 = max(0, x - padX)

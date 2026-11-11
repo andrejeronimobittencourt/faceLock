@@ -40,7 +40,12 @@ def parseArgs() -> argparse.Namespace:
   )
   parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cuda', 'cpu'])
   parser.add_argument('--infer-every', type=int, default=2)
-  parser.add_argument('--crop-margin', type=float, default=0.25)
+  parser.add_argument(
+    '--crop-margin',
+    type=float,
+    default=0.0,
+    help='Expand Haar box before embedding (0 = tight box)',
+  )
   parser.add_argument('--no-mirror', action='store_true')
   return parser.parse_args()
 
