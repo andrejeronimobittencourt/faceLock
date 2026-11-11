@@ -20,7 +20,12 @@ from facelock.config import (
 from facelock.device import resolveDevice
 from facelock.gallery import FaceGallery, parseAccessLevel
 from facelock.inference.detect import FaceDetector, cropBgr, expandBox
-from facelock.inference.embed import bgrCropToTensor, embed, loadEncoder
+from facelock.inference.embed import (
+  bgrCropToTensor,
+  embed,
+  loadEncoder,
+  transformFromCheckpoint,
+)
 from facelock.inference.track import (
   FaceTrack,
   appearanceStillMatches,
@@ -74,6 +79,7 @@ def runCamera(
   device = resolveDevice(deviceChoice)
   encoder, checkpoint = loadEncoder(encoderPath, device)
   imageSize = int(checkpoint.get('imageSize', 112))
+  preprocess = transformFromCheckpoint(checkpoint, imageSize)
 
   detector = FaceDetector(cascadePath)
   gallery = FaceGallery(dbPath, facesDir)
@@ -100,7 +106,7 @@ def runCamera(
     face = cropBgr(frame, ex, ey, ew, eh)
     if face.size == 0 or face.shape[0] < 20 or face.shape[1] < 20:
       return None
-    tensor = bgrCropToTensor(face, imageSize, device)
+    tensor = bgrCropToTensor(face, imageSize, device, transform=preprocess)
     vector = embed(encoder, tensor)[0].detach().cpu().numpy().astype(np.float32)
     return normalizeEmbedding(vector)
 

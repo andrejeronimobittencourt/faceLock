@@ -11,9 +11,9 @@ Train a face **encoder**, register people in a SQLite **gallery**, run live
 ```
 ├── facelock/              # Core library
 │   ├── config.py           # Sizes, thresholds, default paths
-│   ├── data/               # Identity-folder index + pair sampler
-│   ├── models/             # FaceEncoder + match head
-│   ├── training/           # Training loop
+│   ├── data/               # Identity-folder index, pairs, ArcFace samples
+│   ├── models/             # FaceEncoder, IResNet, ArcFace, match head
+│   ├── training/           # Pair-match and ArcFace loops
 │   ├── gallery/            # SQLite CRUD + cosine match
 │   ├── inference/          # Detect, embed, track, camera
 │   └── viz/                # HUD overlays
@@ -58,20 +58,40 @@ data/identities/
 |------|--------|
 | Layout | **One folder per person**; folder name = identity id |
 | Images | `.jpg` / `.jpeg` / `.png`, RGB |
-| Per person | At least **2 images** (needed for same-person pairs) |
+| Per person | At least **2 images** (needed for same-person pairs / val) |
 | People | At least **2** identity folders |
-| Train size | Images are resized to **112×112**; train aug starts at **144×144** then random-crops |
-| Embedding | **128-D**, L2-normalized; compare with cosine similarity |
+| Train size | Images are resized to **112×112** |
 
 ## Train
+
+### Pair match (default)
 
 ```bash
 python train.py
 python train.py --dataset-dir data/identities --epochs 20 --device cuda
 ```
 
+| Setting | Default |
+|---------|---------|
+| Embedding | **128-D**, L2-normalized |
+
+### ArcFace + IResNet
+
+```bash
+python train.py --method arcface --device cuda
+python train.py --method arcface --backbone ir100 --epochs 40 --device cuda
+```
+
+| Setting | Default |
+|---------|---------|
+| `--backbone` | `ir50` (`ir18` / `ir34` / `ir50` / `ir100`) |
+| Embedding | **512-D**, L2-normalized |
+
 Best encoder: `models/checkpoints/encoder_best.pt` (also copied to
 `models/encoder_best.pt`).
+
+After changing `--method` or `--backbone`, rebuild the gallery (dims /
+preprocess must match the encoder).
 
 ## Gallery
 
@@ -119,4 +139,4 @@ python camera.py --required operator --device cuda
 
 | File | Produced by | Used by |
 |------|-------------|---------|
-| `models/encoder_best.pt` | `train.py` | `gallery_cli.py`, `camera.py` |
+| `models/encoder_best.pt` | `train.py` (`pair` or `arcface`) | `gallery_cli.py`, `camera.py` |

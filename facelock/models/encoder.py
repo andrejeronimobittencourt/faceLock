@@ -50,7 +50,7 @@ class FaceEncoder(nn.Module):
     return self.fc(x)
 
   def encode(self, x: torch.Tensor, normalize: bool = True) -> torch.Tensor:
-    """Return embedding; L2-normalize for cosine comparison."""
+    """Return L2-normalized embedding."""
     z = self.forward(x)
     if normalize:
       z = F.normalize(z, p=2, dim=1)

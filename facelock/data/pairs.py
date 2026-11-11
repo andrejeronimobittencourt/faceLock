@@ -75,6 +75,7 @@ class PairDataset(Dataset):
     pairSeed: int,
     augment: bool,
     augSize: int = 144,
+    transform: transforms.Compose | None = None,
   ) -> None:
     self.index = index
     self.anchorIndexes = anchorIndexes
@@ -82,11 +83,14 @@ class PairDataset(Dataset):
     if len(self.allowedIdIndexes) < 2:
       raise ValueError('Need at least 2 identities for different-person pairs')
     self.pairSeed = pairSeed
-    self.transform = (
-      buildTrainTransform(imageSize, augSize)
-      if augment
-      else buildEvalTransform(imageSize)
-    )
+    if transform is not None:
+      self.transform = transform
+    else:
+      self.transform = (
+        buildTrainTransform(imageSize, augSize)
+        if augment
+        else buildEvalTransform(imageSize)
+      )
 
   def __len__(self) -> int:
     return int(len(self.anchorIndexes))

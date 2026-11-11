@@ -1,4 +1,4 @@
-"""Train MatchModel and export the encoder for cosine gallery matching."""
+"""Train MatchModel and export the encoder."""
 
 from __future__ import annotations
 
@@ -15,24 +15,7 @@ from facelock.config import TrainConfig
 from facelock.data import FaceIndex, PairDataset, splitByIdentity
 from facelock.device import resolveDevice, setSeed
 from facelock.models import MatchModel
-
-
-def exportEncoder(
-  model: MatchModel,
-  path: Path,
-  embedDim: int,
-  imageSize: int,
-) -> None:
-  """Save encoder-only weights for inference / gallery registration."""
-  path.parent.mkdir(parents=True, exist_ok=True)
-  torch.save(
-    {
-      'encoderState': model.encoder.state_dict(),
-      'latentDim': embedDim,
-      'imageSize': imageSize,
-    },
-    path,
-  )
+from facelock.models.checkpoint import exportEncoder as writeEncoderCheckpoint
 
 
 def saveCheckpoint(
@@ -63,7 +46,7 @@ def runEpoch(
   device: torch.device,
   optimizer: torch.optim.Optimizer | None,
 ) -> dict[str, float]:
-  """One train or eval epoch. Reports head and cosine match accuracy."""
+  """One train or eval epoch."""
   trainMode = optimizer is not None
   model.train(trainMode)
 
@@ -250,11 +233,12 @@ def runTraining(
       config,
       checkpointsDir / 'latest.pt',
     )
-    exportEncoder(
-      model,
+    writeEncoderCheckpoint(
+      model.encoder,
       checkpointsDir / 'encoder_latest.pt',
       config.embedDim,
       config.imageSize,
+      extraMeta={'pipeline': 'pair'},
     )
 
     if valMetrics['cosineMatchAcc'] >= bestValAcc:
@@ -268,8 +252,13 @@ def runTraining(
         checkpointsDir / 'best.pt',
       )
       bestEncoder = checkpointsDir / 'encoder_best.pt'
-      exportEncoder(model, bestEncoder, config.embedDim, config.imageSize)
-      # Also copy to the default models/ path when outputDir is models-related.
+      writeEncoderCheckpoint(
+        model.encoder,
+        bestEncoder,
+        config.embedDim,
+        config.imageSize,
+        extraMeta={'pipeline': 'pair'},
+      )
       print(f'  new best val_cosine={bestValAcc * 100:.2f}% → {bestEncoder}')
 
     if epoch % config.saveEvery == 0:

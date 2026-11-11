@@ -7,10 +7,17 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Model / image geometry
+# Model / image geometry (pair-match defaults)
 IMAGE_SIZE = 112
 AUG_SIZE = 144
 EMBED_DIM = 128
+
+# ArcFace / IResNet defaults
+ARCFACE_EMBED_DIM = 512
+ARCFACE_AUG_SIZE = 128
+ARCFACE_BACKBONE = 'ir50'
+ARCFACE_SCALE = 64.0
+ARCFACE_MARGIN = 0.50
 
 # Gallery match
 MATCH_THRESHOLD = 0.65
@@ -54,3 +61,27 @@ class TrainConfig:
   seed: int = 42
   valImages: int = 10_000
   saveEvery: int = 5
+
+
+@dataclass(frozen=True)
+class ArcFaceTrainConfig:
+  """IResNet + ArcFace training defaults."""
+
+  backbone: str = ARCFACE_BACKBONE
+  imageSize: int = IMAGE_SIZE
+  augSize: int = ARCFACE_AUG_SIZE
+  embedDim: int = ARCFACE_EMBED_DIM
+  batchSize: int = 64
+  epochs: int = 20
+  learningRate: float = 0.1
+  weightDecay: float = 5e-4
+  momentum: float = 0.9
+  warmupEpochs: int = 1
+  gradClip: float = 5.0
+  numWorkers: int = 4
+  seed: int = 42
+  valImages: int = 10_000
+  saveEvery: int = 5
+  arcScale: float = ARCFACE_SCALE
+  arcMargin: float = ARCFACE_MARGIN
+  dropout: float = 0.0
