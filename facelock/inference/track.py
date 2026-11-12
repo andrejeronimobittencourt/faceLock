@@ -52,11 +52,36 @@ class FaceTrack:
   verifyMisses: int = 0
 
 
+def smoothTrackBox(
+  track: FaceTrack,
+  x: int,
+  y: int,
+  width: int,
+  height: int,
+  positionAlpha: float = 0.45,
+  sizeAlpha: float = 0.22,
+  sizeDeadband: float = 0.06,
+) -> None:
+  """EMA-smooth box; ignore tiny size jitter so the HUD does not flicker."""
+  track.x = int(round(positionAlpha * x + (1.0 - positionAlpha) * track.x))
+  track.y = int(round(positionAlpha * y + (1.0 - positionAlpha) * track.y))
+  if track.width > 0 and track.height > 0:
+    relW = abs(width - track.width) / float(track.width)
+    relH = abs(height - track.height) / float(track.height)
+    if relW < sizeDeadband and relH < sizeDeadband:
+      return
+  track.width = int(round(sizeAlpha * width + (1.0 - sizeAlpha) * track.width))
+  track.height = int(round(sizeAlpha * height + (1.0 - sizeAlpha) * track.height))
+  track.width = max(1, track.width)
+  track.height = max(1, track.height)
+
+
 def boxIou(
   a: tuple[int, int, int, int],
   b: tuple[int, int, int, int],
 ) -> float:
   """Intersection-over-union for (x, y, w, h) boxes."""
+
   ax1, ay1, aw, ah = a
   bx1, by1, bw, bh = b
   ax2, ay2 = ax1 + aw, ay1 + ah

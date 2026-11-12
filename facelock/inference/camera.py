@@ -33,6 +33,7 @@ from facelock.inference.track import (
   normalizeEmbedding,
   pruneSessionMemory,
   retireTrack,
+  smoothTrackBox,
   trackLabel,
   tryIdentifyTrack,
 )
@@ -145,7 +146,7 @@ def runCamera(
           if embedding is not None:
             track.lastEmbedding = embedding
 
-        track.x, track.y, track.width, track.height = x, y, width, height
+        smoothTrackBox(track, x, y, width, height)
         track.lastSeenFrame = frameIndex
         track.lostFrames = 0
         active.append(track)
