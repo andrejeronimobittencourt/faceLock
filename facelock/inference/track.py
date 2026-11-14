@@ -314,7 +314,7 @@ def trackLabel(track: FaceTrack) -> tuple[str, str, int | None, str | None]:
     decision = track.decision or DECISION_GRANTED
     return (
       track.identity.name.upper(),
-      f'{track.identity.accessName.upper()}  //  {score:03d}',
+      track.identity.accessName.upper(),
       score,
       decision,
     )

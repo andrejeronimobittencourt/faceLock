@@ -28,4 +28,6 @@ Thumbs.db
 
 *.log
 *.pt
+*.pt.partial
 *.npy
+runs/

@@ -1,12 +1,9 @@
-"""JARVIS-style HUD overlays for the live camera.
-
-All chrome is sized from the face bounding square (w×h), not fixed pixels:
-text, padding, stroke, and gallery ref scale with that box.
-"""
+"""sci-fi-style HUD overlays for the live camera."""
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -23,7 +20,6 @@ from facelock.gallery import (
 
 WHITE = (235, 235, 235)
 CYAN = (230, 200, 120)
-CYAN_SOFT = (170, 145, 80)
 MINT = (190, 230, 160)
 AMBER = (60, 170, 230)
 CRIMSON = (90, 90, 230)
@@ -97,7 +93,6 @@ def _putTextUtf8(
   )
 
 
-
 def decisionAccent(decision: str | None) -> tuple[int, int, int]:
   """Accent color for clearance state."""
   if decision == DECISION_GRANTED:
@@ -114,14 +109,19 @@ def ease(t: float, speed: float = 1.2) -> float:
   return 0.5 + 0.5 * math.sin(t * speed)
 
 
-def faceSide(faceW: int, faceH: int) -> float:
-  """Primary size unit: shorter side of the face box."""
-  return float(max(1, min(faceW, faceH)))
+def hudGeometry(x: int, y: int, w: int, h: int) -> tuple[int, int, float]:
+  """Center and side length of the square HUD frame for a detector box."""
+  side = float(max(1, w, h))
+  return x + w // 2, y + h // 2, side
 
 
 def strokeFor(side: float) -> int:
-  """Line thickness proportional to the face square."""
-  return max(1, int(round(side / 140.0)))
+  """Stroke width from face size (1px, or 2px on large faces)."""
+  return 1 if side < 260 else 2
+
+
+def _clampInt(value: float, low: int, high: int) -> int:
+  return max(low, min(high, int(round(value))))
 
 
 def alphaRect(
@@ -145,231 +145,320 @@ def alphaRect(
   cv2.addWeighted(wash, alpha, roi, 1.0 - alpha, 0, dst=roi)
 
 
+def _blendColor(
+  a: tuple[int, int, int],
+  b: tuple[int, int, int],
+  weight: float,
+) -> tuple[int, int, int]:
+  """Linear blend between two BGR colors; weight in [0, 1] toward b."""
+  w = max(0.0, min(1.0, float(weight)))
+  return (
+    int(round(a[0] + (b[0] - a[0]) * w)),
+    int(round(a[1] + (b[1] - a[1]) * w)),
+    int(round(a[2] + (b[2] - a[2]) * w)),
+  )
+
+
+def _dim(color: tuple[int, int, int], amount: float = 0.55) -> tuple[int, int, int]:
+  """Blend an accent toward the panel tone."""
+  return _blendColor(color, PANEL, amount)
+
+
 def drawBrackets(
   frame: np.ndarray,
-  x: int,
-  y: int,
-  w: int,
-  h: int,
+  cx: int,
+  cy: int,
+  frameRadius: int,
   color: tuple[int, int, int],
   t: float,
   locked: bool,
   side: float,
 ) -> None:
-  """Corner brackets sized from the face square."""
-  arm = max(int(side * 0.18), strokeFor(side) * 6)
-  inset = 0 if locked else int(side * 0.012 * ease(t, 2.0))
+  """Corner brackets around the HUD square."""
+  breathe = 0 if locked else int(round(side * 0.01 * ease(t, 2.4)))
+  r = frameRadius + breathe
+  arm = max(8, int(side * 0.12))
+  rail = max(4, int(arm * 0.45))
+  offset = 4 if side >= 140 else 3
   thickness = strokeFor(side)
-  x1, y1 = x - inset, y - inset
-  x2, y2 = x + w + inset, y + h + inset
-
-  lines = [
-    ((x1, y1), (x1 + arm, y1)),
-    ((x1, y1), (x1, y1 + arm)),
-    ((x2, y1), (x2 - arm, y1)),
-    ((x2, y1), (x2, y1 + arm)),
-    ((x1, y2), (x1 + arm, y2)),
-    ((x1, y2), (x1, y2 - arm)),
-    ((x2, y2), (x2 - arm, y2)),
-    ((x2, y2), (x2, y2 - arm)),
-  ]
-  for p1, p2 in lines:
-    cv2.line(frame, p1, p2, color, thickness, cv2.LINE_AA)
+  soft = _dim(color)
+  x1, y1, x2, y2 = cx - r, cy - r, cx + r, cy + r
+  for px, py, sx, sy in ((x1, y1, 1, 1), (x2, y1, -1, 1), (x1, y2, 1, -1), (x2, y2, -1, -1)):
+    cv2.line(frame, (px, py), (px + sx * arm, py), color, thickness, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px, py + sy * arm), color, thickness, cv2.LINE_AA)
+    cv2.line(
+      frame,
+      (px + sx * (arm - rail), py + sy * offset),
+      (px + sx * arm, py + sy * offset),
+      soft,
+      1,
+      cv2.LINE_AA,
+    )
 
 
-def drawReticle(
+def ringRadii(half: float) -> tuple[int, int, int]:
+  """Inner, mid, and outer reticle radii for half-side ``half``."""
+  return int(half * 1.02), int(half * 1.09), int(half * 1.15)
+
+
+def drawRings(
+  frame: np.ndarray,
+  cx: int,
+  cy: int,
+  half: float,
+  color: tuple[int, int, int],
+  t: float,
+  locked: bool,
+  side: float,
+) -> None:
+  """Draw the concentric reticle around the face."""
+  if half < 20:
+    return
+  rInner, rMid, rOuter = ringRadii(half)
+  thickness = strokeFor(side)
+  soft = _dim(color)
+  speed = 9.0 if locked else 36.0
+
+  base = (t * speed) % 360.0
+  for k in range(3):
+    start = base + k * 120.0
+    cv2.ellipse(
+      frame,
+      (cx, cy),
+      (rOuter, rOuter),
+      0,
+      start,
+      start + 76.0,
+      color,
+      thickness,
+      cv2.LINE_AA,
+    )
+
+  counter = (-t * speed * 0.6) % 360.0
+  for k in range(4):
+    start = counter + k * 90.0
+    cv2.ellipse(frame, (cx, cy), (rMid, rMid), 0, start, start + 12.0, soft, 1, cv2.LINE_AA)
+
+  cv2.circle(frame, (cx, cy), rInner, soft, 1, cv2.LINE_AA)
+  for deg in range(0, 360, 15):
+    major = deg % 90 == 0
+    length = max(2, int(half * (0.05 if major else 0.02)))
+    angle = math.radians(deg)
+    ca, sa = math.cos(angle), math.sin(angle)
+    p0 = (int(round(cx + ca * rInner)), int(round(cy + sa * rInner)))
+    p1 = (
+      int(round(cx + ca * (rInner + length))),
+      int(round(cy + sa * (rInner + length))),
+    )
+    cv2.line(frame, p0, p1, color if major else soft, 1, cv2.LINE_AA)
+
+
+def scanLineY(cy: int, radius: int, t: float) -> int:
+  """Scan-line Y inside a ring of the given radius."""
+  phase = (t * 0.35) % 1.0
+  return int(round(cy - radius + phase * 2 * radius))
+
+
+def drawScanLine(
   frame: np.ndarray,
   cx: int,
   cy: int,
   radius: int,
   color: tuple[int, int, int],
   t: float,
-  locked: bool,
   side: float,
 ) -> None:
-  """Circular reticle; radius already comes from the face box."""
-  if radius < 10:
+  """Draw the scan chord and fading wake inside the inner ring."""
+  scanY = scanLineY(cy, radius, t)
+  if radius < 8:
     return
-  thickness = strokeFor(side)
-  gap = 28 if not locked else 14
-  start = int((t * 40) % 360)
-  cv2.ellipse(
-    frame,
-    (cx, cy),
-    (radius, radius),
-    0,
-    start + gap,
-    start + 360,
-    color,
-    thickness,
-    cv2.LINE_AA,
-  )
-  inner = max(6, radius - int(side * 0.09))
-  cv2.circle(frame, (cx, cy), inner, CYAN_SOFT, thickness, cv2.LINE_AA)
-  tick = max(4, radius // 10)
-  for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-    x0 = cx + dx * (inner - tick)
-    y0 = cy + dy * (inner - tick)
-    x1 = cx + dx * (inner + 1)
-    y1 = cy + dy * (inner + 1)
-    cv2.line(frame, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
+  frameH, frameW = frame.shape[:2]
+  colorArr = np.asarray(color, dtype=np.float32)
+  wake = max(4, int(side * 0.07))
+
+  for i in range(1, wake + 1):
+    row = scanY - i
+    dy = row - cy
+    if row < 0 or row >= frameH or abs(dy) >= radius:
+      continue
+    halfChord = int(math.sqrt(radius * radius - dy * dy))
+    xa = max(0, cx - halfChord)
+    xb = min(frameW, cx + halfChord + 1)
+    if xb <= xa:
+      continue
+    alpha = 0.16 * (1.0 - i / float(wake)) ** 2
+    segment = frame[row, xa:xb].astype(np.float32)
+    frame[row, xa:xb] = (segment * (1.0 - alpha) + colorArr * alpha).astype(np.uint8)
+
+  dy = scanY - cy
+  if abs(dy) < radius:
+    halfChord = int(math.sqrt(radius * radius - dy * dy))
+    left = cx - halfChord
+    right = cx + halfChord
+    cv2.line(frame, (left, scanY), (right, scanY), color, 1, cv2.LINE_AA)
+    tick = max(2, int(side * 0.012))
+    cv2.line(frame, (left, scanY - tick), (left, scanY + tick), color, 1, cv2.LINE_AA)
+    cv2.line(frame, (right, scanY - tick), (right, scanY + tick), color, 1, cv2.LINE_AA)
 
 
-def drawScanLine(
-  frame: np.ndarray,
-  x: int,
-  y: int,
-  w: int,
-  h: int,
-  color: tuple[int, int, int],
-  t: float,
-  side: float,
-) -> None:
-  """Horizontal sweep across the face box."""
-  if w < 8 or h < 8:
-    return
-  phase = (t * 0.35) % 1.0
-  scanY = y + int(phase * max(1, h - 1))
-  band = max(2, int(side * 0.015))
-  y0 = max(y, scanY - band)
-  y1 = min(y + h, scanY + band + 1)
-  if y1 > y0:
-    alphaRect(frame, x, y0, x + w, y1, color, 0.12)
-  cv2.line(
-    frame,
-    (x + 2, scanY),
-    (x + w - 2, scanY),
-    color,
-    strokeFor(side),
-    cv2.LINE_AA,
+MATCH_LABEL = 'MATCH'
+
+
+@dataclass(frozen=True)
+class ReadoutMetrics:
+  """Laid-out sizes for name and clearance text."""
+
+  namePx: int
+  metaPx: int
+  nameH: int
+  metaH: int
+  gap: int
+  width: int
+  height: int
+
+
+def measureReadout(nameLine: str, metaLine: str, side: float) -> ReadoutMetrics:
+  """Measure name/clearance text for a HUD of ``side`` pixels."""
+  namePx = _clampInt(side * 0.055, 11, 15)
+  metaPx = _clampInt(side * 0.042, 9, 11)
+  nameW, nameH = _textSizeUtf8(nameLine, namePx)
+  metaW, metaH = _textSizeUtf8(metaLine, metaPx)
+  gap = _clampInt(side * 0.015, 2, 4)
+  return ReadoutMetrics(
+    namePx=namePx,
+    metaPx=metaPx,
+    nameH=nameH,
+    metaH=metaH,
+    gap=gap,
+    width=max(nameW, metaW),
+    height=nameH + gap + metaH,
   )
 
 
 def drawReadout(
   frame: np.ndarray,
-  x: int,
-  y: int,
+  left: int,
+  top: int,
   nameLine: str,
   metaLine: str,
   color: tuple[int, int, int],
-  side: float,
+  metrics: ReadoutMetrics,
 ) -> None:
-  """Identity chip sized as a fraction of the face square."""
-  namePx = max(10, int(side * 0.11))
-  metaPx = max(9, int(side * 0.085))
-  thickness = strokeFor(side)
-  nameW, nameH = _textSizeUtf8(nameLine, namePx)
-  metaW, metaH = _textSizeUtf8(metaLine, metaPx)
-  padX = max(4, int(side * 0.05))
-  padY = max(4, int(side * 0.04))
-  gap = max(4, int(side * 0.035))
-  boxW = max(nameW, metaW) + padX * 2
-  boxH = nameH + metaH + padY * 2 + gap
-  top = max(0, y - boxH - max(4, int(side * 0.04)))
-  left = max(0, x)
-  frameH, frameW = frame.shape[:2]
-  if left + boxW >= frameW:
-    left = max(0, frameW - boxW - 1)
-
-  alphaRect(frame, left, top, left + boxW, top + boxH, PANEL, 0.55)
-  cv2.rectangle(
-    frame,
-    (left, top),
-    (left + boxW, top + boxH),
-    CYAN_SOFT,
-    thickness,
-    cv2.LINE_AA,
-  )
-  cv2.line(
-    frame,
-    (left, top),
-    (left, top + boxH),
-    color,
-    max(2, thickness + 1),
-    cv2.LINE_AA,
-  )
-  _putTextUtf8(
-    frame,
-    nameLine,
-    (left + padX, top + padY + nameH),
-    namePx,
-    WHITE,
-  )
+  """Draw name and clearance text at ``(left, top)``."""
+  nameBaseline = top + metrics.nameH
+  _putTextUtf8(frame, nameLine, (left, nameBaseline), metrics.namePx, WHITE)
   _putTextUtf8(
     frame,
     metaLine,
-    (left + padX, top + padY + nameH + metaH + gap),
-    metaPx,
+    (left, nameBaseline + metrics.gap + metrics.metaH),
+    metrics.metaPx,
     color,
   )
 
 
 def drawMatchMeter(
   frame: np.ndarray,
-  x: int,
-  y: int,
-  w: int,
+  left: int,
+  right: int,
+  top: int,
   score: int | None,
   color: tuple[int, int, int],
   side: float,
 ) -> None:
-  """Match meter under the face box."""
+  """Draw a thin match bar (dim track, accent fill)."""
   if score is None:
     return
-  barY = y + max(4, int(side * 0.045))
-  thickness = max(2, strokeFor(side))
-  if barY + thickness >= frame.shape[0] or w < 20:
+  frameH, frameW = frame.shape[:2]
+  thickness = strokeFor(side)
+  if top < 0 or top + thickness > frameH:
     return
-  cv2.line(
-    frame,
-    (x, barY),
-    (x + w, barY),
-    CYAN_SOFT,
-    max(1, thickness - 1),
-    cv2.LINE_AA,
-  )
-  fill = int(w * max(0, min(100, score)) / 100.0)
-  if fill > 0:
-    cv2.line(frame, (x, barY), (x + fill, barY), color, thickness, cv2.LINE_AA)
+  left = max(0, left)
+  right = min(frameW - 1, right)
+  if right <= left:
+    return
+  bottom = top + thickness - 1
+  cv2.rectangle(frame, (left, top), (right, bottom), _dim(color, 0.7), -1)
+  fraction = max(0, min(100, score)) / 100.0
+  filledRight = left + int(round((right - left) * fraction))
+  if filledRight > left:
+    cv2.rectangle(frame, (left, top), (filledRight, bottom), color, -1)
 
 
-def drawReferencePanel(
+def _drawReferenceImage(
   frame: np.ndarray,
   referenceBgr: np.ndarray,
-  anchorX: int,
-  anchorY: int,
+  left: int,
+  top: int,
+  size: int,
+  color: tuple[int, int, int],
+) -> None:
+  """Draw a gallery thumbnail with border and corner ticks."""
+  thumbnail = cv2.resize(referenceBgr, (size, size), interpolation=cv2.INTER_AREA)
+  frame[top:top + size, left:left + size] = thumbnail
+
+  right = left + size - 1
+  bottom = top + size - 1
+  cv2.rectangle(frame, (left, top), (right, bottom), _dim(color), 1)
+  mark = max(4, int(size * 0.12))
+  for px, py, sx, sy in (
+    (left, top, 1, 1),
+    (right, top, -1, 1),
+    (left, bottom, 1, -1),
+    (right, bottom, -1, -1),
+  ):
+    cv2.line(frame, (px, py), (px + sx * mark, py), color, 1)
+    cv2.line(frame, (px, py), (px, py + sy * mark), color, 1)
+
+
+def drawMatchCard(
+  frame: np.ndarray,
+  referenceBgr: np.ndarray | None,
+  cx: int,
+  cy: int,
+  frameRadius: int,
+  nameLine: str,
+  metaLine: str,
   color: tuple[int, int, int],
   side: float,
 ) -> None:
-  """Gallery ref ≈ 42% of the face square side."""
+  """Draw the match card beside the HUD (thumbnail when locked, always text)."""
   frameH, frameW = frame.shape[:2]
-  panelSide = max(48, int(side * 0.42))
-  panel = cv2.resize(referenceBgr, (panelSide, panelSide))
+  metrics = measureReadout(nameLine, metaLine, side)
+  size = _clampInt(side * 0.24, 44, 96) if referenceBgr is not None else 0
+  pad = _clampInt(side * 0.025, 4, 7)
+  inner = _clampInt(side * 0.02, 3, 5)
+  bar = 2
+  labelPx = _clampInt(side * 0.038, 9, 10)
+  labelH = _textSizeUtf8(MATCH_LABEL, labelPx)[1] if size else 0
 
-  gap = max(8, int(side * 0.08))
-  x1 = min(frameW - panelSide - 4, max(0, anchorX + gap))
-  y1 = min(frameH - panelSide - 4, max(0, anchorY))
-  x2 = x1 + panelSide
-  y2 = y1 + panelSide
-  frame[y1:y2, x1:x2] = panel
+  contentW = max(size, metrics.width)
+  contentH = metrics.height
+  if size:
+    contentH += labelH + inner + size + inner
+  cardW = bar + pad * 2 + contentW
+  cardH = pad * 2 + contentH
 
-  thickness = strokeFor(side)
-  cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
-  mark = max(6, int(side * 0.06))
-  cv2.line(frame, (x1, y1), (x1 + mark, y1), WHITE, thickness, cv2.LINE_AA)
-  cv2.line(frame, (x1, y1), (x1, y1 + mark), WHITE, thickness, cv2.LINE_AA)
-  cv2.line(frame, (x2, y2), (x2 - mark, y2), WHITE, thickness, cv2.LINE_AA)
-  cv2.line(frame, (x2, y2), (x2, y2 - mark), WHITE, thickness, cv2.LINE_AA)
+  columnGap = _clampInt(side * 0.06, 8, 20)
+  left = cx + frameRadius + columnGap
+  if left + cardW > frameW - 2:
+    left = cx - frameRadius - columnGap - cardW
+  left = max(2, min(frameW - cardW - 2, left))
+  top = max(2, min(frameH - cardH - 2, cy - frameRadius))
 
-  linkY = y1 + max(12, int(side * 0.12))
-  cv2.line(
-    frame,
-    (max(0, anchorX), min(frameH - 1, anchorY + max(12, int(side * 0.12)))),
-    (x1, linkY),
-    CYAN_SOFT,
-    thickness,
-    cv2.LINE_AA,
-  )
+  alphaRect(frame, left, top, left + cardW, top + cardH, PANEL, 0.6)
+  cv2.rectangle(frame, (left, top), (left + bar - 1, top + cardH - 1), color, -1)
+  accentEnd = left + int(cardW * 0.4)
+  cv2.line(frame, (left, top), (accentEnd, top), color, 1)
+  cv2.line(frame, (accentEnd, top), (left + cardW - 1, top), _dim(color, 0.7), 1)
+
+  x0 = left + bar + pad
+  y = top + pad
+  if size:
+    _putTextUtf8(frame, MATCH_LABEL, (x0, y + labelH), labelPx, _dim(color, 0.35))
+    y += labelH + inner
+    _drawReferenceImage(frame, referenceBgr, x0, y, size, color)
+    y += size + inner
+  drawReadout(frame, x0, y, nameLine, metaLine, color, metrics)
 
 
 def drawFaceHud(
@@ -386,17 +475,28 @@ def drawFaceHud(
   t: float,
   locked: bool,
 ) -> None:
-  """JARVIS-style overlay for one tracked face."""
+  """sci-fi-style overlay for one tracked face."""
   color = decisionAccent(decision)
-  side = faceSide(w, h)
-  cx, cy = x + w // 2, y + h // 2
-  radius = int(max(w, h) * 0.55)
+  cx, cy, side = hudGeometry(x, y, w, h)
+  half = side / 2.0
+  innerRadius, _midRadius, outerRadius = ringRadii(half)
+  frameRadius = int(round(outerRadius + max(3.0, side * 0.015)))
+  spacing = _clampInt(side * 0.03, 5, 10)
 
-  drawBrackets(frame, x, y, w, h, color, t, locked=locked, side=side)
-  drawReticle(frame, cx, cy, radius, color, t, locked=locked, side=side)
-  drawScanLine(frame, x, y, w, h, color, t, side=side)
-  drawReadout(frame, x, y, nameLine, metaLine, color, side=side)
-  drawMatchMeter(frame, x, y + h, w, score, color, side=side)
+  drawRings(frame, cx, cy, half, color, t, locked=locked, side=side)
+  drawScanLine(frame, cx, cy, innerRadius, color, t, side=side)
+  drawBrackets(frame, cx, cy, frameRadius, color, t, locked=locked, side=side)
 
-  if referenceBgr is not None and locked:
-    drawReferencePanel(frame, referenceBgr, x + w, y, color, side=side)
+  meterTop = cy + frameRadius + spacing
+  drawMatchMeter(frame, cx - frameRadius, cx + frameRadius, meterTop, score, color, side=side)
+  drawMatchCard(
+    frame,
+    referenceBgr if locked else None,
+    cx,
+    cy,
+    frameRadius,
+    nameLine,
+    metaLine,
+    color,
+    side=side,
+  )

@@ -1,4 +1,4 @@
-"""Live webcam: detect → track → identify → HUD."""
+"""Live webcam: detect → track → identify."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def runCamera(
   encoderPath: Path | None = None,
   dbPath: Path | None = None,
   facesDir: Path | None = None,
-  cascadePath: Path | None = None,
+  faceModelPath: Path | None = None,
   required: str = 'admin',
   matchThreshold: float = MATCH_THRESHOLD,
   verifyThreshold: float = VERIFY_THRESHOLD,
@@ -66,12 +66,12 @@ def runCamera(
   cropMargin: float = 0.0,
   mirror: bool = True,
 ) -> None:
-  """Open the webcam and run recognition with the JARVIS HUD."""
+  """Open the webcam and run recognition with the sci-fi HUD."""
   paths = Paths()
   encoderPath = Path(encoderPath or paths.encoderBest)
   dbPath = Path(dbPath or paths.galleryDb)
   facesDir = Path(facesDir or paths.galleryFaces)
-  cascadePath = Path(cascadePath or paths.cascade)
+  faceModelPath = Path(faceModelPath or paths.faceModel)
   requiredLevel = parseAccessLevel(required)
 
   if not encoderPath.exists():
@@ -82,7 +82,10 @@ def runCamera(
   imageSize = int(checkpoint.get('imageSize', 112))
   preprocess = transformFromCheckpoint(checkpoint, imageSize)
 
-  detector = FaceDetector(cascadePath)
+  detector = FaceDetector(
+    modelPath=faceModelPath,
+    device=None if deviceChoice == 'auto' else deviceChoice,
+  )
   gallery = FaceGallery(dbPath, facesDir)
   if not gallery.listIdentities():
     print('Warning: gallery is empty. Register faces with gallery_cli.py first.')
@@ -223,4 +226,5 @@ def runCamera(
   finally:
     capture.release()
     cv2.destroyAllWindows()
+    detector.close()
     gallery.close()

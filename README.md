@@ -17,8 +17,8 @@ Train a face **encoder**, register people in a SQLite **gallery**, run live
 │   ├── gallery/            # SQLite CRUD + cosine match
 │   ├── inference/          # Detect, embed, track, camera
 │   └── viz/                # HUD overlays
-├── assets/                 # Haar cascade + demo.png
-├── data/identities/        # Your training faces (not shipped)
+├── assets/                 # demo.png (+ yolov8n-face.pt)
+├── data/identities/        # Training faces (not shipped)
 ├── models/                 # encoder_best.pt (not shipped)
 ├── gallery/                # Runtime DB + reference faces
 ├── train.py
@@ -27,7 +27,7 @@ Train a face **encoder**, register people in a SQLite **gallery**, run live
 └── pyproject.toml
 ```
 
-**Not included in the repo:** training images, gallery database, or trained weights.
+Face detection: runtime uses [Ultralytics](https://github.com/ultralytics/ultralytics) (AGPL-3.0) and face weights from [akanametov/yolo-face](https://github.com/akanametov/yolo-face) (GPL-3.0).
 
 ## Install
 
@@ -35,8 +35,10 @@ Train a face **encoder**, register people in a SQLite **gallery**, run live
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-# GPU PyTorch: install the wheel that matches your driver, then pip install -e .
+# GPU PyTorch: install the wheel that matches your driver.
 ```
+
+`assets/yolov8n-face.pt` downloads automatically if missing.
 
 ## Training data format
 
@@ -121,19 +123,12 @@ python gallery_cli.py check --image path/to/probe.jpg --required admin && unlock
 
 ## Camera
 
-Haar detect → IoU track → gallery identify (once per track) → appearance verify
-→ HUD. Press `q` to quit.
+Detect → track → identify. Press `q` to quit.
 
 ```bash
 python camera.py
 python camera.py --required operator --device cuda
 ```
-
-| Threshold | Default | Role |
-|-----------|---------|------|
-| `--match-threshold` | `0.65` | Cosine to bind a gallery identity to a track |
-| `--verify-threshold` | `0.50` | Cosine to keep that identity if the crop changes |
-| `--confirm-hits` | `2` | Consecutive matches before binding |
 
 ## Checkpoints
 

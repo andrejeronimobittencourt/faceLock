@@ -42,7 +42,7 @@ class Paths:
   encoderBest: Path = Path('models') / 'encoder_best.pt'
   galleryDb: Path = Path('gallery') / 'gallery.db'
   galleryFaces: Path = Path('gallery') / 'faces'
-  cascade: Path = PROJECT_ROOT / 'assets' / 'haarcascade_frontalface_default.xml'
+  faceModel: Path = PROJECT_ROOT / 'assets' / 'yolov8n-face.pt'
   assetsDir: Path = PROJECT_ROOT / 'assets'
 
 
