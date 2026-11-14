@@ -116,7 +116,7 @@ def hudGeometry(x: int, y: int, w: int, h: int) -> tuple[int, int, float]:
 
 
 def strokeFor(side: float) -> int:
-  """Stroke width from face size (1px, or 2px on large faces)."""
+  """Hairline strokes; only very large faces get 2px."""
   return 1 if side < 260 else 2
 
 
@@ -319,11 +319,11 @@ class ReadoutMetrics:
 
 def measureReadout(nameLine: str, metaLine: str, side: float) -> ReadoutMetrics:
   """Measure name/clearance text for a HUD of ``side`` pixels."""
-  namePx = _clampInt(side * 0.055, 11, 15)
-  metaPx = _clampInt(side * 0.042, 9, 11)
+  namePx = max(11, int(round(side * 0.055)))
+  metaPx = max(9, int(round(side * 0.042)))
   nameW, nameH = _textSizeUtf8(nameLine, namePx)
   metaW, metaH = _textSizeUtf8(metaLine, metaPx)
-  gap = _clampInt(side * 0.015, 2, 4)
+  gap = max(2, int(round(side * 0.015)))
   return ReadoutMetrics(
     namePx=namePx,
     metaPx=metaPx,
@@ -424,11 +424,11 @@ def drawMatchCard(
   """Draw the match card beside the HUD (thumbnail when locked, always text)."""
   frameH, frameW = frame.shape[:2]
   metrics = measureReadout(nameLine, metaLine, side)
-  size = _clampInt(side * 0.24, 44, 96) if referenceBgr is not None else 0
-  pad = _clampInt(side * 0.025, 4, 7)
-  inner = _clampInt(side * 0.02, 3, 5)
-  bar = 2
-  labelPx = _clampInt(side * 0.038, 9, 10)
+  size = max(44, int(round(side * 0.24))) if referenceBgr is not None else 0
+  pad = max(4, int(round(side * 0.025)))
+  inner = max(3, int(round(side * 0.02)))
+  bar = max(2, int(round(side * 0.008)))
+  labelPx = max(9, int(round(side * 0.038)))
   labelH = _textSizeUtf8(MATCH_LABEL, labelPx)[1] if size else 0
 
   contentW = max(size, metrics.width)
@@ -438,7 +438,7 @@ def drawMatchCard(
   cardW = bar + pad * 2 + contentW
   cardH = pad * 2 + contentH
 
-  columnGap = _clampInt(side * 0.06, 8, 20)
+  columnGap = max(8, int(round(side * 0.06)))
   left = cx + frameRadius + columnGap
   if left + cardW > frameW - 2:
     left = cx - frameRadius - columnGap - cardW
@@ -481,7 +481,7 @@ def drawFaceHud(
   half = side / 2.0
   innerRadius, _midRadius, outerRadius = ringRadii(half)
   frameRadius = int(round(outerRadius + max(3.0, side * 0.015)))
-  spacing = _clampInt(side * 0.03, 5, 10)
+  spacing = max(5, int(round(side * 0.03)))
 
   drawRings(frame, cx, cy, half, color, t, locked=locked, side=side)
   drawScanLine(frame, cx, cy, innerRadius, color, t, side=side)
