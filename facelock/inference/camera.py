@@ -108,7 +108,7 @@ def runCamera(
   def embedBox(x: int, y: int, width: int, height: int) -> np.ndarray | None:
     ex, ey, ew, eh = expandBox(x, y, width, height, frameW, frameH, margin=cropMargin)
     face = cropBgr(frame, ex, ey, ew, eh)
-    if face.size == 0 or face.shape[0] < 20 or face.shape[1] < 20:
+    if face.size == 0:
       return None
     tensor = bgrCropToTensor(face, imageSize, device, transform=preprocess)
     vector = embed(encoder, tensor)[0].detach().cpu().numpy().astype(np.float32)
