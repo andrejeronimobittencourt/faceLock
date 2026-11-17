@@ -39,8 +39,8 @@ class FaceDetector:
   def __init__(
     self,
     modelPath: Path | None = None,
-    minSize: tuple[int, int] = (60, 60),
-    minDetectionConfidence: float = 0.5,
+    minSize: tuple[int, int] = (1, 1),
+    minDetectionConfidence: float = 0.25,
     device: str | None = None,
   ) -> None:
     try:
